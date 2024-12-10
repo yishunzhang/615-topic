@@ -1,0 +1,207 @@
+---
+title: "Topic modeling"
+author: "Yishun Zhang"
+date: "2024-11-06"
+output:
+  html_document:
+    df_print: paged
+---
+
+#Here’s how to perform topic modeling on movie plots in R using the topicmodels package, including data loading, text preprocessing, topic modeling (LDA), and visualization of each topic's common words.
+
+#read the data:
+```{r}
+library(tidyr)
+library(topicmodels)
+library(dplyr)
+library(tidyverse)
+library(tm)
+library(wordcloud)
+library(ggwordcloud)
+library(tidytext)
+library(textrank)
+library(ggforce)
+movies<- read.csv("C:/Users/17756/Downloads/movie_plots_with_genres.csv")
+movies<- movies%>% filter(!is.na(Plot))
+```
+
+```{r}
+
+library(tidytext)
+plot_word_counts <- movies%>%
+  unnest_tokens(word, Plot)%>%
+  count(Movie.Name, word, sort = TRUE)%>%
+  ungroup()
+
+# Create Document-Term Matrix (DTM).
+plots_dtm <- plot_word_counts %>%
+  cast_dtm(Movie.Name, word, n)
+
+# Check dimensions of DTM.
+dim(plots_dtm)
+```
+
+Creating LDA model.
+
+```{r}
+# Apply the LDA model, choose 30 topics.
+set.seed(1066)
+plots_lda <- LDA(plots_dtm, k = 30, control = list(seed = 1066))
+
+# Creating beta matrix.
+topics <- tidy(plots_lda, matrix = "beta")
+
+# Identify the top terms for each topic
+top_terms <- topics %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 10) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+# Print the top terms for each topic
+print(top_terms)
+
+
+```
+
+Visualize top terms.
+
+```{r}
+top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap_paginate(~ topic, scales = "free_y", ncol = 3, nrow = 3, page = 1) + 
+  scale_y_reordered() +
+  scale_x_continuous(labels = scales::number_format(accuracy = 0.001)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    title = "Top Terms in Each Topic",
+    x = "Probability",
+    y = "Term"
+  )
+
+top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap_paginate(~ topic, scales = "free_y", ncol = 3, nrow = 3, page = 2) + 
+  scale_y_reordered() +
+  scale_x_continuous(labels = scales::number_format(accuracy = 0.001)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    title = "Top Terms in Each Topic",
+    x = "Probability",
+    y = "Term"
+  )
+
+top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap_paginate(~ topic, scales = "free_y", ncol = 3, nrow = 3, page = 3) + 
+  scale_y_reordered() +
+  scale_x_continuous(labels = scales::number_format(accuracy = 0.001)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    title = "Top Terms in Each Topic",
+    x = "Probability",
+    y = "Term"
+  )
+
+top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap_paginate(~ topic, scales = "free_y", ncol = 3, nrow = 3, page = 4) + 
+  scale_y_reordered() +
+  scale_x_continuous(labels = scales::number_format(accuracy = 0.001)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    title = "Top Terms in Each Topic",
+    x = "Probability",
+    y = "Term"
+  )
+```
+
+After extracting top terms, working on the matrix, and doing the analysis.
+
+```{r}
+# Extract the document-topic distribution matrix (gamma values)
+plots_gamma <- tidy(plots_lda, matrix = "gamma")
+
+# Transform the document-topic matrix into a wide format for clustering
+plots_gamma_wider <- plots_gamma %>%
+  pivot_wider(names_from = topic, values_from = gamma)
+
+# Perform K-means clustering on the document-topic distributions
+set.seed(1234)
+plots_gamma_wider_no_na <- plots_gamma_wider %>% drop_na()
+cluster <- kmeans(plots_gamma_wider_no_na %>% select(-document), centers = 8)
+
+# Visualize the clusters using a scatter plot
+library(factoextra)
+fviz_cluster(cluster, data = plots_gamma_wider_no_na %>% select(-document))
+
+# Add the cluster assignments to the original dataset
+plots_gamma_wider$cluster <- cluster$cluster
+
+```
+
+Achieve each cluster information (e.g. cluster 7, cluster 1).
+
+```{r}
+# Extract the list of movie titles in a specific cluster
+cluster_7_names <- plots_gamma_wider %>%
+  filter(cluster == 7) %>%
+  pull(document)
+
+cluster_1_names <- plots_gamma_wider %>%
+  filter(cluster == 1) %>%
+  pull(document)
+
+# Display the movies
+cluster_7_movies <- movies %>%
+  filter(Movie.Name %in% cluster_7_names)
+
+cluster_1_movies <- movies %>%
+  filter(Movie.Name %in% cluster_1_names)
+
+print(cluster_7_movies)
+print(cluster_1_movies)
+```
+
+```{r}
+# Function to generate a word cloud for each topic
+generate_wordcloud <- function(topic_number, topics_data) {
+  # Filter terms for the specified topic
+  topic_terms <- topics_data %>%
+    filter(topic == topic_number) %>%
+    arrange(desc(beta)) %>%
+    slice_max(beta, n = 10) # Select top 30 words
+  
+  # Generate the word cloud
+  wordcloud(words = topic_terms$term,
+            freq = topic_terms$beta,
+            max.words = 10,
+            random.order = FALSE,
+            colors = brewer.pal(8, "Dark2"),
+            scale = c(4, 0.5))
+}
+
+# Generate word clouds for each topic (Example: first 5 topics)
+par(mfrow = c(2, 3)) # Set up a layout to display multiple word clouds
+for (i in 1:5) {
+  generate_wordcloud(i, topics)
+  title(paste("Topic", i))
+}
+```
+
+
+
+
+
+
+
+
+
